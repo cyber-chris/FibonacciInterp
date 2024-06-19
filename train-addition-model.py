@@ -28,8 +28,8 @@ cfg = transformer_lens.HookedTransformerConfig(
     n_layers=1,
     d_model=128,
     n_ctx=N_CTX,
-    d_head=128,
-    n_heads=1,
+    d_head=64,
+    n_heads=2,
     d_mlp=128,
     d_vocab=D_VOCAB,
     act_fn="relu",
@@ -65,8 +65,8 @@ def seq_to_tokens(seq: np.ndarray) -> torch.Tensor:
 def generate_addition_data():
     X, y = [], []
 
-    for a in range(0, 125):
-        for b in range(0, 125):
+    for a in range(0, 150):
+        for b in range(0, 150):
             x_str, y_str = f"{a},{b},", str(a + b)
             x_toks, y_toks = str_to_tokens(x_str), str_to_tokens(y_str)
             if len(x_toks) < cfg.n_ctx:
@@ -83,7 +83,7 @@ def generate_addition_data():
 X, y = generate_addition_data()
 
 dataset = TensorDataset(X, y)
-train_ds, val_ds = torch.utils.data.random_split(dataset, lengths=[0.95, 0.05])
+train_ds, val_ds = torch.utils.data.random_split(dataset, lengths=[0.9, 0.1])
 print(len(train_ds), len(val_ds))
 
 X_val, y_val = val_ds.dataset.tensors
@@ -91,6 +91,12 @@ X_val, y_val = X_val[val_ds.indices], y_val[val_ds.indices]
 assert X_val.shape[0] == len(val_ds)
 
 train_dataloader = DataLoader(train_ds, batch_size=128, shuffle=True)
+
+for X, y in train_dataloader:
+    for b, seq in enumerate(X):
+        print(f"For example, {untokenize(seq)} predicts {y[b]}")
+        break
+    break
 
 # %%
 # Loss function (cross entropy loss)
@@ -122,7 +128,7 @@ def accuracy(
 # %%
 # training
 
-n_epochs = 100
+n_epochs = 120
 
 # Optimization
 lr = 1e-3
