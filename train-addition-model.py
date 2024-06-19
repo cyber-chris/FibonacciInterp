@@ -28,14 +28,14 @@ cfg = transformer_lens.HookedTransformerConfig(
     n_layers=1,
     d_model=128,
     n_ctx=N_CTX,
-    d_head=64,
-    n_heads=1,
-    d_mlp=128,
+    d_head=128,
+    n_heads=2,
+    d_mlp=None,
     d_vocab=D_VOCAB,
     act_fn="relu",
     seed=42,
     device=DEVICE,
-    attn_only=False,
+    attn_only=True,
 )
 model = transformer_lens.HookedTransformer(cfg, move_to_device=True)
 
@@ -133,7 +133,7 @@ def accuracy(
 # %%
 # training
 
-n_epochs = 20
+n_epochs = 100
 
 # Optimization
 lr = 1e-3
