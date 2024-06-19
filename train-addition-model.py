@@ -29,7 +29,7 @@ cfg = transformer_lens.HookedTransformerConfig(
     d_model=128,
     n_ctx=N_CTX,
     d_head=64,
-    n_heads=2,
+    n_heads=1,
     d_mlp=128,
     d_vocab=D_VOCAB,
     act_fn="relu",
@@ -44,6 +44,8 @@ model = transformer_lens.HookedTransformer(cfg, move_to_device=True)
 
 torch.manual_seed(42)
 
+MAX_DIGITS = 4
+
 
 def tokenize(c: str):
     return ord(c) - ord("0") if c.isdigit() else 10  # 10 is comma
@@ -54,12 +56,13 @@ def untokenize(toks) -> str:
 
 
 def str_to_tokens(seq_str):
-    return torch.tensor([tokenize(c) for c in seq_str], device=DEVICE)
-
-
-def seq_to_tokens(seq: np.ndarray) -> torch.Tensor:
-    seq_str = ",".join(seq.astype(str))
-    return str_to_tokens(seq_str)
+    formatted_str = ",".join(
+        [
+            item.zfill(MAX_DIGITS) if item.isdigit() else item
+            for item in seq_str.split(",")
+        ]
+    )
+    return torch.tensor([tokenize(c) for c in formatted_str], device=DEVICE)
 
 
 def generate_addition_data():
@@ -80,6 +83,7 @@ def generate_addition_data():
     return torch.row_stack(X), torch.tensor(y, device=DEVICE)
 
 
+# TODO: show it examples of terminating answer with comma
 X, y = generate_addition_data()
 
 dataset = TensorDataset(X, y)
@@ -95,7 +99,8 @@ train_dataloader = DataLoader(train_ds, batch_size=128, shuffle=True)
 for X, y in train_dataloader:
     for b, seq in enumerate(X):
         print(f"For example, {untokenize(seq)} predicts {y[b]}")
-        break
+        if b > 10:
+            break
     break
 
 # %%
@@ -128,7 +133,7 @@ def accuracy(
 # %%
 # training
 
-n_epochs = 120
+n_epochs = 20
 
 # Optimization
 lr = 1e-3
@@ -145,7 +150,12 @@ class TrainingHistory:
 def train_model(model: transformer_lens.HookedTransformer) -> TrainingHistory:
     wandb.init(
         project="fibonacci-interp",
-        config={"learning_rate": lr, "architecture": cfg.__dict__, "epochs": n_epochs},
+        config={
+            "learning_rate": lr,
+            "architecture": cfg.__dict__,
+            "dataset": f"fib-padding-{len(train_ds)}",
+            "epochs": n_epochs,
+        },
     )
 
     losses = []
