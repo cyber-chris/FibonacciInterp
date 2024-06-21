@@ -25,11 +25,11 @@ DEVICE = "cuda"
 N_CTX = 64
 D_VOCAB = 11  # 10 digits and a comma
 cfg = transformer_lens.HookedTransformerConfig(
-    n_layers=1,
+    n_layers=2,
     d_model=128,
     n_ctx=N_CTX,
-    d_head=128,
-    n_heads=2,
+    d_head=32,
+    n_heads=4,
     d_mlp=None,
     d_vocab=D_VOCAB,
     act_fn="relu",
@@ -68,8 +68,8 @@ def str_to_tokens(seq_str):
 def generate_addition_data():
     X, y = [], []
 
-    for a in range(0, 150):
-        for b in range(0, 150):
+    for a in range(0, 250):
+        for b in range(0, 250):
             x_str, y_str = f"{a},{b},", str(a + b)
             x_toks, y_toks = str_to_tokens(x_str), str_to_tokens(y_str)
             if len(x_toks) < cfg.n_ctx:
@@ -79,6 +79,9 @@ def generate_addition_data():
                 X.append(x_toks)
                 y.append(y_toks[i])
                 x_toks = torch.cat([x_toks[1:], y_toks[i].view(1)], dim=0)
+            # also learn the end of a number:
+            X.append(x_toks)
+            y.append(torch.tensor(10))
 
     return torch.row_stack(X), torch.tensor(y, device=DEVICE)
 
@@ -87,7 +90,7 @@ def generate_addition_data():
 X, y = generate_addition_data()
 
 dataset = TensorDataset(X, y)
-train_ds, val_ds = torch.utils.data.random_split(dataset, lengths=[0.9, 0.1])
+train_ds, val_ds = torch.utils.data.random_split(dataset, lengths=[0.8, 0.2])
 print(len(train_ds), len(val_ds))
 
 X_val, y_val = val_ds.dataset.tensors
@@ -95,6 +98,7 @@ X_val, y_val = X_val[val_ds.indices], y_val[val_ds.indices]
 assert X_val.shape[0] == len(val_ds)
 
 train_dataloader = DataLoader(train_ds, batch_size=128, shuffle=True)
+val_dataloader = DataLoader(val_ds, batch_size=128, shuffle=True)
 
 for X, y in train_dataloader:
     for b, seq in enumerate(X):
@@ -116,6 +120,14 @@ def loss_fn(
     # For the full fibonacci I'll probably do the usual c_e(logits, targets) method.
     return torch.nn.functional.cross_entropy(logits[:, -1, :], targets)
 
+def correct_preds_count(
+    logits: torch.Tensor,  # [batch, pos, d_vocab]
+    targets: torch.Tensor,
+):
+    probs = logits[:, -1, :].softmax(dim=-1)
+    predictions = probs.argmax(dim=-1)
+    assert predictions.shape == targets.shape
+    return (predictions == targets).float().sum()
 
 def accuracy(
     logits: torch.Tensor,  # [batch, pos, d_vocab]
@@ -133,7 +145,7 @@ def accuracy(
 # %%
 # training
 
-n_epochs = 100
+n_epochs = 30
 
 # Optimization
 lr = 1e-3
@@ -176,12 +188,13 @@ def train_model(model: transformer_lens.HookedTransformer) -> TrainingHistory:
                 losses.append(loss.item())
                 train_batch_acc = accuracy(logits, y)
                 train_accuracies.append(train_batch_acc.cpu())
-                val_acc = accuracy(model(X_val), y_val)
-                val_accuracies.append(val_acc.cpu())
 
-                # early terminate, we don't really care about perfect accuracy
-                if val_acc > 0.98:
-                    break
+                val_correct_counts = 0
+                for X_val, y_val in val_dataloader:
+                    val_correct_counts += correct_preds_count(model(X_val), y_val)
+                val_acc = val_correct_counts / len(val_ds)
+                assert 0 <= val_acc <= 1
+                val_accuracies.append(val_acc)
 
                 print(
                     f"({epoch}) loss = {loss.item():.4f}, batch accuracy = {train_batch_acc}, val accuracy = {val_acc}"
@@ -194,6 +207,10 @@ def train_model(model: transformer_lens.HookedTransformer) -> TrainingHistory:
                         "val_acc": val_acc,
                     }
                 )
+
+                # early terminate, we don't really care about perfect accuracy
+                if val_acc > 0.999:
+                    return TrainingHistory(losses, train_accuracies, val_accuracies)
 
     return TrainingHistory(losses, train_accuracies, val_accuracies)
 
