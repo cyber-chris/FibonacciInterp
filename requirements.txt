@@ -16,3 +16,4 @@ transformer_lens
 circuitsvis
 nbformat>=4.2.0
 plotly 
+wandb
