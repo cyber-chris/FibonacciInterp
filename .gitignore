@@ -188,3 +188,4 @@ pyrightconfig.json
 
 wandb/
 models/
+data-cache/

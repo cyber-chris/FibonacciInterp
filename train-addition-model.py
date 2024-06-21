@@ -7,10 +7,8 @@ from torch.utils.data import DataLoader, TensorDataset
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from fancy_einsum import einsum
 import numpy as np
 from dataclasses import dataclass
-import matplotlib.pyplot as plt
 
 import os
 import datetime
@@ -65,11 +63,14 @@ def str_to_tokens(seq_str):
     return torch.tensor([tokenize(c) for c in formatted_str], device=DEVICE)
 
 
+OPERAND_LIMIT = 600
+
+
 def generate_addition_data():
     X, y = [], []
 
-    for a in range(0, 250):
-        for b in range(0, 250):
+    for a in range(0, OPERAND_LIMIT):
+        for b in range(0, OPERAND_LIMIT):
             x_str, y_str = f"{a},{b},", str(a + b)
             x_toks, y_toks = str_to_tokens(x_str), str_to_tokens(y_str)
             if len(x_toks) < cfg.n_ctx:
@@ -79,15 +80,24 @@ def generate_addition_data():
                 X.append(x_toks)
                 y.append(y_toks[i])
                 x_toks = torch.cat([x_toks[1:], y_toks[i].view(1)], dim=0)
-            # also learn the end of a number:
+            # also learn the end of a number by showing it the comma
             X.append(x_toks)
             y.append(torch.tensor(10))
 
     return torch.row_stack(X), torch.tensor(y, device=DEVICE)
 
 
-# TODO: show it examples of terminating answer with comma
-X, y = generate_addition_data()
+if os.path.exists(f"data-cache/add-{OPERAND_LIMIT}-X.pt"):
+    X = torch.load(f"data-cache/add-{OPERAND_LIMIT}-X.pt")
+    y = torch.load(f"data-cache/add-{OPERAND_LIMIT}-y.pt")
+else:
+    X, y = generate_addition_data()
+    print("Saving generated data to data-cache/add-*.pt")
+    torch.save(X, f"data-cache/add-{OPERAND_LIMIT}-X.pt")
+    torch.save(y, f"data-cache/add-{OPERAND_LIMIT}-y.pt")
+
+random_indices = torch.randperm(len(X))[: int(0.75 * len(X))]
+X, y = X[random_indices], y[random_indices]
 
 dataset = TensorDataset(X, y)
 train_ds, val_ds = torch.utils.data.random_split(dataset, lengths=[0.8, 0.2])
@@ -120,6 +130,7 @@ def loss_fn(
     # For the full fibonacci I'll probably do the usual c_e(logits, targets) method.
     return torch.nn.functional.cross_entropy(logits[:, -1, :], targets)
 
+
 def correct_preds_count(
     logits: torch.Tensor,  # [batch, pos, d_vocab]
     targets: torch.Tensor,
@@ -128,6 +139,7 @@ def correct_preds_count(
     predictions = probs.argmax(dim=-1)
     assert predictions.shape == targets.shape
     return (predictions == targets).float().sum()
+
 
 def accuracy(
     logits: torch.Tensor,  # [batch, pos, d_vocab]
@@ -145,7 +157,7 @@ def accuracy(
 # %%
 # training
 
-n_epochs = 30
+n_epochs = 5
 
 # Optimization
 lr = 1e-3
